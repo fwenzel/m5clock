@@ -2,5 +2,11 @@
 .piolibdeps
 .pio
 
+# Font files - we don't distribute these
+img_gen/*.ttf
+
+# Generated images
+img_gen/**/*.png
+
 # Environment configuration files
 src/config.h
