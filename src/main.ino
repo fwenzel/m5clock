@@ -4,12 +4,13 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <SD.h>
+#include <SPIFFS.h>
 #include "config.h"
 
 // Update cadences
 constexpr uint32_t kMinuteMs  = 60 * 1000;
 constexpr uint32_t kHourMs    = 60 * kMinuteMs;
-constexpr int      kPartialsBeforeFull = 15;
 
 // Layout
 constexpr int W = 960, H = 540;
@@ -20,43 +21,130 @@ M5GFX display;             // M5GFX display for M5Paper
 M5Canvas canvas(&display); // RAM canvas we draw into
 
 uint32_t lastMinute  = 0;
-int partials = 0;
+String currentImagePath = "";
 
-
-void draw(bool full) {
-  // Create only the region we intend to push to minimize RAM and time
-  int ch = full ? H : CLOCK_H;
-  canvas.createSprite(W, ch);
-  canvas.fillSprite(TFT_WHITE);
-  canvas.setTextColor(TFT_BLACK);
-  canvas.setTextDatum(middle_center);
-
-  // Time from RTC
-  m5::rtc_datetime_t datetime = M5.Rtc.getDateTime();
-
-  char hhmm[6];  snprintf(hhmm, sizeof(hhmm), "%02d:%02d", datetime.time.hours, datetime.time.minutes);
-  char dateS[24];snprintf(dateS, sizeof(dateS), "%04d-%02d-%02d", datetime.date.year, datetime.date.month, datetime.date.date);
-  
-  Serial.printf("Displaying time: %s %s\n", hhmm, dateS);
-
-  // Big clock
-  canvas.setTextSize(5);
-  canvas.drawString(hhmm, W/2, 40);
-  canvas.setTextSize(2);
-  canvas.drawString(dateS, W/2, 120);
-
-
-  // Push to EPD: full refresh or partial for the top band
-  if (full) {
-    canvas.pushSprite(0, 0);
-    display.display();                // full-screen update
-    partials = 0;
-  } else {
-    // Only update the clock band to reduce ghosting and flicker
-    canvas.pushSprite(0, 0);
-    display.display(0, 0, W, CLOCK_H); // partial region update
-    partials++;
+String getRandomImagePath(int hour, int minute) {
+  // Search backwards up to 60 minutes for available images
+  for (int offset = 0; offset < 60; offset++) {
+    int searchMinute = minute - offset;
+    int searchHour = hour;
+    
+    // Handle minute underflow
+    if (searchMinute < 0) {
+      searchMinute += 60;
+      searchHour--;
+      if (searchHour < 0) searchHour = 23;
+    }
+    
+    // Format time as HHMM
+    char timeStr[5];
+    snprintf(timeStr, sizeof(timeStr), "%02d%02d", searchHour, searchMinute);
+    
+    // Search for files matching pattern quote_HHMM_*_credits.png
+    String basePath = "/images/metadata/quote_" + String(timeStr) + "_";
+    String suffix = "_credits.png";
+    
+    // Count available options for this time
+    int optionCount = 0;
+    for (int i = 0; i < 20; i++) { // Check up to 20 options
+      String testPath = basePath + String(i) + suffix;
+      if (SD.exists(testPath)) {
+        optionCount++;
+      } else {
+        break; // No more options
+      }
+    }
+    
+    if (optionCount > 0) {
+      // Randomly select one of the available options
+      int selectedOption = random(optionCount);
+      String selectedPath = basePath + String(selectedOption) + suffix;
+      Serial.printf("Found %d options for time %s, selected option %d\n", 
+                    optionCount, timeStr, selectedOption);
+      return selectedPath;
+    }
   }
+  
+  Serial.println("No images found for any time in the last 60 minutes");
+  return "";
+}
+
+void draw() {
+  // Get current time for image selection
+  m5::rtc_datetime_t datetime = M5.Rtc.getDateTime();
+  
+  // Create full screen canvas
+  canvas.createSprite(W, H);
+  canvas.fillSprite(TFT_WHITE);
+  
+  // Load and display the selected image
+  bool imageLoaded = false;
+  if (currentImagePath.length() > 0 && SD.exists(currentImagePath)) {
+    Serial.printf("Loading image: %s\n", currentImagePath.c_str());
+    
+    // Load PNG image from SD card using canvas
+    // Try to load the image file
+    File imageFile = SD.open(currentImagePath, FILE_READ);
+    if (imageFile) {
+      // Read the file into memory and draw it
+      size_t fileSize = imageFile.size();
+      uint8_t* buffer = (uint8_t*)malloc(fileSize);
+      if (buffer) {
+        imageFile.read(buffer, fileSize);
+        imageFile.close();
+        
+        // Draw the PNG from memory
+        if (canvas.drawPng(buffer, fileSize, 0, 0)) {
+          Serial.println("Image loaded successfully");
+          imageLoaded = true;
+        } else {
+          Serial.println("Failed to draw PNG from memory");
+        }
+        free(buffer);
+      } else {
+        Serial.println("Failed to allocate memory for image");
+        imageFile.close();
+      }
+    } else {
+      Serial.println("Failed to open image file");
+    }
+  } else {
+    Serial.println("No image path or file not found, using white background");
+  }
+  
+  // If no image was loaded, display time in big font in the middle
+  if (!imageLoaded) {
+    char hhmm[6];
+    snprintf(hhmm, sizeof(hhmm), "%02d:%02d", datetime.time.hours, datetime.time.minutes);
+    
+    // Set up text for time display
+    canvas.setTextColor(TFT_BLACK);
+    canvas.setTextSize(8);  // Big font
+    canvas.setTextDatum(middle_center);
+    
+    // Draw time in the middle of the screen
+    canvas.drawString(hhmm, W/2, H/2);
+    
+    Serial.printf("Displaying time: %s (no image available)\n", hhmm);
+  }
+  
+  // Draw date overlay in bottom-left corner
+  char dateS[24];
+  snprintf(dateS, sizeof(dateS), "%04d-%02d-%02d", datetime.date.year, datetime.date.month, datetime.date.date);
+  
+  // Set up text for overlay with good visibility
+  canvas.setTextColor(TFT_BLACK); // Black text without background
+  canvas.setTextSize(2);
+  canvas.setTextDatum(bottom_left);
+  
+  // Draw date at bottom-left corner
+  canvas.drawString(dateS, 20, H - 20);
+  
+  Serial.printf("Displayed image with date: %s\n", dateS);
+  
+  // Push canvas to display and update
+  canvas.pushSprite(0, 0);
+  display.display();
   canvas.deleteSprite();
 }
 
@@ -128,7 +216,6 @@ bool syncTimeViaHTTP() {
   return true;
 }
 
-
 void syncTimeOnce() {
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   uint32_t t0 = millis();
@@ -156,11 +243,28 @@ void setup() {
 
   Serial.println("Display initialized");
   
+  // Initialize SD card
+  Serial.println("Initializing SD card...");
+  if (!SD.begin(4)) {  // 4 is the CS pin for the SD card
+    Serial.println("ERROR: SD card initialization failed!");
+  } else {
+    Serial.println("SD card initialized successfully");
+    
+    // Test if images directory exists
+    if (SD.exists("/images/metadata")) {
+      Serial.println("Images directory found");
+    } else {
+      Serial.println("WARNING: Images directory not found");
+    }
+  }
+  
   Serial.println("Syncing time...");
   syncTimeOnce();
   
+  // Initialize random seed
+  randomSeed(analogRead(0));
 
-  draw(true);                  // initial full draw
+  draw();                      // initial draw
   lastMinute  = millis();
   
   Serial.println("Setup complete");
@@ -170,11 +274,14 @@ void loop() {
   uint32_t now = millis();
 
   if (now - lastMinute >= kMinuteMs) {
-    bool doFull = (partials >= kPartialsBeforeFull);
-    draw(doFull);
+    // Get current time and select new image path
+    m5::rtc_datetime_t datetime = M5.Rtc.getDateTime();
+    currentImagePath = getRandomImagePath(datetime.time.hours, datetime.time.minutes);
+    
+    // Draw the new image
+    draw();
     lastMinute = now;
   }
-
 
   // Light idle to keep CPU cool. For battery, switch to deep sleep with RTC alarm.
   delay(50);
