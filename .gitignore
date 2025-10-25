@@ -1,0 +1,6 @@
+.pioenvs
+.piolibdeps
+.pio
+
+# Environment configuration files
+src/config.h

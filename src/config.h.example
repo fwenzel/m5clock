@@ -1,0 +1,11 @@
+// WiFi Configuration Example
+// Copy this file to config.h and fill in your actual credentials
+
+#ifndef CONFIG_H
+#define CONFIG_H
+
+// WiFi credentials - replace with your actual values
+const char* WIFI_SSID = "YourWiFiNetworkName";
+const char* WIFI_PASS = "YourWiFiPassword";
+
+#endif // CONFIG_H
