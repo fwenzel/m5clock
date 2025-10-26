@@ -35,9 +35,11 @@ A simple digital clock for M5Paper using M5Unified and M5GFX libraries.
 - Falls back to nearest previous time if no images exist for current time
 - Shows large time display when no images are available (white background)
 - Shows date overlay in bottom-left corner
-- Syncs time via HTTP from worldclockapi.com
+- Syncs time via HTTP from worldclockapi.com (on every boot, then once every 24 hours)
 - Updates display every minute
-- Low power consumption with e-paper display
+- **Ultra-low power consumption**: Deep sleep between updates, wakes only for minute changes
+- **Smart time sync**: Only syncs time once per day to save battery and reduce WiFi usage
+- **Simple time tracking**: Uses millis() for reliable 24-hour sync intervals after boot
 
 ## Security Note
 

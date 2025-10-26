@@ -6,11 +6,18 @@
 #include <ArduinoJson.h>
 #include <SD.h>
 #include <SPIFFS.h>
+#include <cstdlib>
+#include <esp_sleep.h>
+#include <Preferences.h>
 #include "config.h"
 
 // Update cadences
 constexpr uint32_t kMinuteMs  = 60 * 1000;
 constexpr uint32_t kHourMs    = 60 * kMinuteMs;
+constexpr uint32_t kDayMs     = 24 * kHourMs;
+
+// Preferences for persistent storage
+Preferences preferences;
 
 // Layout
 constexpr int W = 960, H = 540;
@@ -20,8 +27,66 @@ constexpr int CLOCK_H = 160;
 M5GFX display;             // M5GFX display for M5Paper
 M5Canvas canvas(&display); // RAM canvas we draw into
 
-uint32_t lastMinute  = 0;
+uint32_t syncOffset = 0;
 String currentImagePath = "";
+
+// NVRAM storage functions using Preferences
+void writeNVRAM(const char* key, uint32_t value) {
+  preferences.begin("clock", false);
+  preferences.putUInt(key, value);
+  preferences.end();
+  Serial.printf("Stored %s: %d\n", key, value);
+}
+
+uint32_t readNVRAM(const char* key) {
+  preferences.begin("clock", false);
+  uint32_t value = preferences.getUInt(key, 0);
+  preferences.end();
+  return value;
+}
+
+// Deep sleep until next minute
+void sleepUntilNextMinute() {
+  m5::rtc_datetime_t datetime = M5.Rtc.getDateTime();
+  
+  // Calculate seconds until next minute
+  int secondsUntilNext = 60 - datetime.time.seconds;
+  
+  Serial.printf("Sleeping for %d seconds until next minute\n", secondsUntilNext);
+
+  // Remember time since last ntp sync
+  uint32_t lastSync = readNVRAM("last_ntp_sync");
+  writeNVRAM("last_ntp_sync", lastSync + millis() - syncOffset);
+
+  // Configure timer wake-up
+  esp_sleep_enable_timer_wakeup(secondsUntilNext * 1000000ULL); // Convert to microseconds
+  
+  // Enter deep sleep
+  esp_deep_sleep_start();
+}
+
+// Check if we need to sync time (24h elapsed since last sync or RTC is far off)
+bool shouldSyncTime() {
+  // First check if RTC time is reasonable (not 1970 or other obviously wrong dates)
+  m5::rtc_datetime_t datetime = M5.Rtc.getDateTime();
+  if (datetime.date.year < 2025) {
+    Serial.printf("RTC time appears to be wrong (year: %d), will sync\n", datetime.date.year);
+    return true;
+  }
+  
+  uint32_t lastSync = readNVRAM("last_ntp_sync");
+  if (lastSync == 0) {
+    Serial.println("No previous NTP sync found, will sync");
+    return true;
+  }
+  
+  uint32_t timeSinceSync = lastSync + millis() - syncOffset;
+  
+  Serial.printf("Last NTP sync was %d ms ago (%.1f hours)\n", 
+                timeSinceSync, timeSinceSync / (float)kHourMs);
+  
+  return timeSinceSync >= kDayMs;
+}
 
 String getRandomImagePath(int hour, int minute) {
   // Search backwards up to 60 minutes for available images
@@ -146,6 +211,9 @@ void draw() {
   canvas.pushSprite(0, 0);
   display.display();
   canvas.deleteSprite();
+
+  // Wait slightly to let the display update
+  delay(2000);
 }
 
 bool syncTimeViaHTTP() {
@@ -193,7 +261,7 @@ bool syncTimeViaHTTP() {
   int second = datetimeStr.substring(17, 19).toInt();
   
   // Validate the parsed values
-  if (year < 2020 || year > 2030 || month < 1 || month > 12 || day < 1 || day > 31 ||
+  if (year < 2025 || month < 1 || month > 12 || day < 1 || day > 31 ||
       hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) {
     Serial.println("ERROR: Invalid parsed time values");
     return false;
@@ -222,7 +290,12 @@ void syncTimeOnce() {
   while (WiFi.status() != WL_CONNECTED && millis() - t0 < 12000) delay(100);
   
   if (WiFi.status() == WL_CONNECTED) {
-    syncTimeViaHTTP();
+    if (syncTimeViaHTTP()) {
+      // Reset age of last time sync to zero.
+      writeNVRAM("last_ntp_sync", 0);
+      syncOffset = millis();
+      Serial.println("NTP sync time recorded in NVRAM");
+    }
   } else {
     Serial.println("ERROR: WiFi connection failed");
   }
@@ -258,31 +331,43 @@ void setup() {
     }
   }
   
-  Serial.println("Syncing time...");
-  syncTimeOnce();
+  // Check if we woke up from deep sleep
+  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
   
+  if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
+    Serial.println("Woke up from deep sleep - updating display");
+        
+    // Check if we need to sync time (24h elapsed since last sync)
+    if (shouldSyncTime()) {
+      Serial.println("24h elapsed - syncing time...");
+      syncTimeOnce();
+    }
+  } else {
+    // First boot - do initial setup
+    Serial.println("First boot - initial setup");
+
+    // Always sync time on boot, then wait 24 hours
+    Serial.println("Syncing time on boot...");
+    syncTimeOnce();  
+  }
+
   // Initialize random seed
   randomSeed(analogRead(0));
 
-  draw();                      // initial draw
-  lastMinute  = millis();
+  // Get current time and select new image path
+  m5::rtc_datetime_t datetime = M5.Rtc.getDateTime();
+  currentImagePath = getRandomImagePath(datetime.time.hours, datetime.time.minutes);
   
-  Serial.println("Setup complete");
+  // Draw the new image
+  draw();
+  
+  // Sleep until next minute
+  sleepUntilNextMinute();
 }
 
 void loop() {
-  uint32_t now = millis();
-
-  if (now - lastMinute >= kMinuteMs) {
-    // Get current time and select new image path
-    m5::rtc_datetime_t datetime = M5.Rtc.getDateTime();
-    currentImagePath = getRandomImagePath(datetime.time.hours, datetime.time.minutes);
-    
-    // Draw the new image
-    draw();
-    lastMinute = now;
-  }
-
-  // Light idle to keep CPU cool. For battery, switch to deep sleep with RTC alarm.
-  delay(50);
+  // This function should never be reached in normal operation
+  // The device will sleep after setup() and wake up every minute
+  Serial.println("ERROR: Reached loop() - this should not happen");
+  delay(1000);
 }
