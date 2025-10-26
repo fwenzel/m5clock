@@ -12,9 +12,6 @@ $previoustime = 0;
 
 // font files
 putenv('GDFONTPATH=' . realpath('.'));
-// $font_path = "LinLibertine_RZ";
-// $font_path_bold = "LinLibertine_RB";
-// $creditFont = "LinLibertine_RZI";
 $font_path = "EBGaramond-Regular";
 $font_path_bold = "EBGaramond-Bold";
 $creditFont = "InterVariable";
@@ -23,16 +20,16 @@ $creditFont = "InterVariable";
 // get the quotes (including title and author) from a CSV file, 
 // and create unique images for them, one without and one with title and author
 $row = 1;
-if (($handle = fopen("litclock_annotated.csv", "r")) !== FALSE) {
-    while (($data = fgetcsv($handle, 1000, "|", '"', "\\")) !== FALSE) {
+if (($handle = fopen("quotes_hourly.csv", "r")) !== FALSE) {
+    while (($data = fgetcsv($handle, 1000, ",", '"', "\\")) !== FALSE) {
         $num = count($data);
         $row++;
         $time = $data[0];
-        $timestring = trim($data[1]);
-        $quote = $data[2];
+        $quote = $data[1];
         $quote = trim(preg_replace('/\s+/', ' ', $quote));
-        $title = trim($data[3]);
-        $author = trim($data[4]);
+        $title = trim($data[2]);
+        $author = trim($data[3]);
+        $timestring = trim($data[4]);
 
         // if ($row < 10)
         TurnQuoteIntoImage($time, $quote, $timestring, $title, $author);
@@ -65,7 +62,7 @@ function TurnQuoteIntoImage($time, $quote, $timestring, $title, $author) {
     // divide text in an array of words, based on spaces
     $quote_array = explode(' ', $quote);
 
-    $time = substr($time, 0, 2).substr($time, 3, 2);
+    // $time = substr($time, 0, 2).substr($time, 3, 2);
 
     // font size to start with looking for a fit. a long quote of 125 words or 700 characters gives us a font size of 23, so 18 is a safe start.
     $font_size = 18;
@@ -88,23 +85,16 @@ function TurnQuoteIntoImage($time, $quote, $timestring, $title, $author) {
 
     print "Image for " . $time .'_'. $imagenumber . "\n";
 
-    // *** Don't create a credit-free image for now ***
-    // Convert the image to grayscale
-    // imagefilter($png_image, IMG_FILTER_GRAYSCALE);
-
-    // Save the image
-    // imagepng($png_image, 'images/quote_'.$time.'_'.$imagenumber.'.png');
-
 
     ///// METADATA /////
-    // create another version, with title and author in the image
+    // add title and author to the image
 
     
     // define text color
     $grey = imagecolorallocate($png_image, 125, 125, 125);
     $black = imagecolorallocate($png_image, 0, 0, 0);
 
-    $dash = "—";
+    $dash = "—"; // em dash
 
     $credits = $title . ", " . $author;
     $creditFont_size = 18;
@@ -167,20 +157,6 @@ function TurnQuoteIntoImage($time, $quote, $timestring, $title, $author) {
 
     // Free up memory
     imagedestroy($png_image);
-
-    // convert the image we made to greyscale
-    // $im = new Imagick();
-    // $im->readImage('images/quote_'.$time.'_'.$imagenumber.'.png');
-    // $im->setImageType(Imagick::IMGTYPE_GRAYSCALE);
-    // unlink('images/quote_'.$time.'_'.$imagenumber.'.png');
-    // $im->writeImage('images/quote_'.$time.'_'.$imagenumber.'.png');
-
-    // convert the image we made to greyscale 
-    // $im = new Imagick();
-    // $im->readImage('images/metadata/quote_'.$time.'_'.$imagenumber.'_credits.png');
-    // $im->setImageType(Imagick::IMGTYPE_GRAYSCALE);
-    // unlink('images/metadata/quote_'.$time.'_'.$imagenumber.'_credits.png');
-    // $im->writeImage('images/metadata/quote_'.$time.'_'.$imagenumber.'_credits.png');
 
 }
 
