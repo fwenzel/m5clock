@@ -1,6 +1,12 @@
 # M5Clock
 
-A simple digital clock for M5Paper using M5Unified and M5GFX libraries.
+A "literary clock" for M5Paper using M5Unified and M5GFX libraries.
+
+Inspired by similar projects, such as [Literary Clock](https://www.literaryclock.com/) and the [Guardian](https://www.theguardian.com/books/booksblog/2014/jun/26/literary-clock-help-us-find-quotes-for-the-missing-minutes).
+
+Because the M5Paper is an eink device and updates very slowly, this clock only changes once an hour, similar to a grandfather clock striking. You have other devices to tell you the precise time, this one lets your mind rest for a little while.
+
+![](./clock.jpg)
 
 ## Setup
 
@@ -8,7 +14,7 @@ A simple digital clock for M5Paper using M5Unified and M5GFX libraries.
    ```bash
    cp src/config.h.example src/config.h
    ```
-   
+
 2. **Edit `src/config.h` with your WiFi credentials:**
    ```cpp
    const char* WIFI_SSID = "YourWiFiNetworkName";
@@ -41,6 +47,7 @@ A simple digital clock for M5Paper using M5Unified and M5GFX libraries.
 - **Smart time sync**: Only syncs time once per day to save battery and reduce WiFi usage
 - **Simple time tracking**: Uses millis() for reliable 24-hour sync intervals after boot
 
-## Security Note
+## Copyright
+All literary works quoted and the image generation code reused from an "Instructable" are copyright of their respective owners.
 
-The `src/config.h` file contains your WiFi credentials and is excluded from version control. Never commit this file to a repository.
+Everything else licensed under an [MIT license](./LICENSE).
