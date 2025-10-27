@@ -283,7 +283,11 @@ void setup() {
 
   // Get current time and select new image path
   m5::rtc_datetime_t datetime = M5.Rtc.getDateTime();
-  currentImagePath = getRandomImagePath(datetime.time.hours);
+  int hour = datetime.time.hours;
+  if (datetime.time.minutes >= 58) {  // if we're close to the hour, advance to the next hour
+    hour = (hour + 1) % 24;
+  }
+  currentImagePath = getRandomImagePath(hour);
 
   // Draw the new image
   draw();
